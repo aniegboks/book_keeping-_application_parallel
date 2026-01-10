@@ -13,22 +13,22 @@ import {
   FileText, BarChart3, CheckSquare, Layers
 } from "lucide-react";
 
-// Map menu routes to required privileges
+// Map menu routes to required privileges - MUST MATCH MODULE_TO_RESOURCE keys
 const MENU_PRIVILEGES: Record<string, { module: string; action: 'read' | 'create' | 'update' | 'delete' }> = {
-  '/dashboard': { module: 'Dashboard', action: 'read' },
+  '/dashboard': { module: 'Academic Sessions', action: 'read' }, // Academic Session menu is mapped to /dashboard route
   '/academic-sessions': { module: 'Academic Sessions', action: 'read' },
   '/brands': { module: 'Brands', action: 'read' },
   '/categories': { module: 'Categories', action: 'read' },
   '/sub-categories': { module: 'Sub Categories', action: 'read' },
-  '/unit-of-measurements': { module: 'Unit of Measurements', action: 'read' },
-  '/inventory-items': { module: 'Inventory Items', action: 'read' },
+  '/unit-of-measurements': { module: 'UOM', action: 'read' },
+  '/inventory-items': { module: 'Inventory', action: 'read' },
   '/entitlements': { module: 'Entitlements', action: 'read' },
   '/suppliers': { module: 'Suppliers', action: 'read' },
   '/classes': { module: 'Classes', action: 'read' },
   '/teachers': { module: 'Teachers', action: 'read' },
   '/students': { module: 'Students', action: 'read' },
   '/supplier-transactions': { module: 'Supplier Transactions', action: 'read' },
-  '/student-collections': { module: 'Student Collections', action: 'read' },
+  '/student-collections': { module: 'Student Inventory Collection', action: 'read' },
   '/distributions': { module: 'Distributions', action: 'read' },
   '/collection-summary': { module: 'Collection Summary', action: 'read' },
   '/collection-report': { module: 'Collection Report', action: 'read' },
@@ -37,7 +37,6 @@ const MENU_PRIVILEGES: Record<string, { module: string; action: 'read' | 'create
   '/privileges': { module: 'Privileges', action: 'read' },
   '/menus': { module: 'Menus', action: 'read' },
   '/settings': { module: 'Settings', action: 'read' },
-  // Add more routes as needed
 };
 
 // Smart icon mapping based on menu caption
@@ -71,21 +70,69 @@ const getIconForMenu = (caption: string): React.ReactNode => {
 };
 
 const VerticalNav = () => {
-  const { user, menus, loading, logout, canPerformAction } = useUser();
+  const { user, menus, loading, logout, canPerformAction, isSuperAdmin } = useUser();
   const pathname = usePathname();
 
   // Filter menus based on privileges
   const authorizedMenus = React.useMemo(() => {
-    return menus.filter(menu => {
+    console.log('🔍 Filtering menus:', {
+      totalMenus: menus.length,
+      isSuperAdmin,
+      menus: menus.map(m => ({ route: m.route, caption: m.caption }))
+    });
+
+    // Super admins see all menus
+    if (isSuperAdmin) {
+      console.log('🔑 Super admin - showing all menus');
+      return menus;
+    }
+
+    // TEMPORARY FIX: Show all menus if no privilege mapping exists
+    // This helps us see what menus the store keeper has
+    const filtered = menus.filter(menu => {
       const privilege = MENU_PRIVILEGES[menu.route];
       
-      // If no privilege requirement is defined, show the menu item
-      if (!privilege) return true;
+      // If no privilege requirement is defined, SHOW the menu (for debugging)
+      if (!privilege) {
+        console.warn(`⚠️ No privilege mapping for route: ${menu.route} (${menu.caption}) - SHOWING ANYWAY`);
+        return true; // Changed to show unmapped menus
+      }
       
       // Check if user has the required privilege
-      return canPerformAction(privilege.module, privilege.action);
+      const hasAccess = canPerformAction(privilege.module, privilege.action);
+      
+      console.log(`${hasAccess ? '✅' : '❌'} Menu "${menu.caption}" (${menu.route}):`, {
+        requiredModule: privilege.module,
+        requiredAction: privilege.action,
+        hasAccess
+      });
+      
+      return hasAccess;
     });
-  }, [menus, canPerformAction]);
+
+    console.log(`📋 Authorized menus: ${filtered.length}/${menus.length}`);
+    
+    // EMERGENCY FALLBACK: If no menus pass the filter, show all menus with a warning
+    if (filtered.length === 0 && menus.length > 0) {
+      console.error('🚨 NO MENUS AUTHORIZED - Showing all menus as fallback. CHECK YOUR PRIVILEGES CONFIGURATION!');
+      return menus;
+    }
+    
+    return filtered;
+  }, [menus, canPerformAction, isSuperAdmin]);
+
+  // Debug effect
+  React.useEffect(() => {
+    console.log('🎨 VerticalNav State:', {
+      user: user?.email,
+      roles: user?.roles,
+      isSuperAdmin,
+      totalMenus: menus.length,
+      authorizedMenus: authorizedMenus.length,
+      menus: menus.map(m => m.caption),
+      authorized: authorizedMenus.map(m => m.caption)
+    });
+  }, [user, menus, authorizedMenus, isSuperAdmin]);
 
   if (loading) {
     return (
@@ -128,6 +175,11 @@ const VerticalNav = () => {
             )}
           </div>
         )}
+        {isSuperAdmin && (
+          <span className="mt-2 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-semibold">
+            🔑 Super Admin
+          </span>
+        )}
       </div>
 
       {/* Scrollable Nav Links */}
@@ -136,6 +188,12 @@ const VerticalNav = () => {
           <div className="text-center text-gray-500 text-sm py-8">
             <p className="mb-2">No menu items available</p>
             <p className="text-xs">Contact your administrator</p>
+            <div className="mt-4 text-xs text-left bg-gray-50 p-3 rounded">
+              <p className="font-semibold mb-1">Debug Info:</p>
+              <p>Total menus: {menus.length}</p>
+              <p>User roles: {user?.roles?.join(', ') || 'None'}</p>
+              <p className="mt-2 text-red-600">Check browser console for details</p>
+            </div>
           </div>
         ) : (
           <ul className="flex flex-col gap-1">

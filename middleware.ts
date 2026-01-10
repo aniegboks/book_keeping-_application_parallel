@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const TEST_URL = process.env.BOOK_KEEPING_TEST_URL!;
-const REFRESH_URL = process.env.BOOK_KEEPING_REFRESH_URL!;
+const TEST_URL = process.env.BACKEND_TESTING_TEST_URL!;
+const REFRESH_URL = process.env.BACKEND_TESTING_REFRESH_URL!;
+
+// Super admin emails that bypass privilege checks
+const SUPER_ADMIN_EMAILS = (process.env.SUPER_ADMIN_EMAILS || '').split(',').map(e => e.trim());
 
 export async function middleware(request: NextRequest) {
   const token = request.cookies.get("token")?.value;
@@ -22,6 +25,17 @@ export async function middleware(request: NextRequest) {
     });
 
     if (verify.ok) {
+      const userData = await verify.json();
+      
+      // Check if user is super admin
+      const userEmail = userData?.user?.email;
+      if (userEmail && SUPER_ADMIN_EMAILS.includes(userEmail)) {
+        // Super admin - allow through
+        const response = NextResponse.next();
+        response.headers.set('x-super-admin', 'true');
+        return response;
+      }
+
       return NextResponse.next();
     }
 

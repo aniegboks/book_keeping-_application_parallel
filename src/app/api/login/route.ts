@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const AUTH_URL = process.env.BOOK_KEEPING_AUTH_URL!;
-const CREATE_USER_URL = process.env.BOOK_KEEPING_CREATE_USER_URL!;
-
 export async function POST(req: NextRequest) {
   try {
+    // Validate environment variables at runtime
+    const AUTH_URL = process.env.BACKEND_TESTING_AUTH_URL;
+    const CREATE_USER_URL = process.env.BACKEND_TESTING_CREATE_USER_URL;
+
+    if (!AUTH_URL || !CREATE_USER_URL) {
+      console.error("Missing environment variables:", {
+        AUTH_URL: !!AUTH_URL,
+        CREATE_USER_URL: !!CREATE_USER_URL,
+      });
+      return NextResponse.json(
+        { error: "Server configuration error. Please contact support." },
+        { status: 500 }
+      );
+    }
+
     const body = await req.json();
     const { email, password, name, role_code, isSignup } = body;
 

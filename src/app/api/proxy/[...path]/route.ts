@@ -1,10 +1,11 @@
-// app/api/proxies/[...path]/route.ts
+// app/api/proxy/[...path]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_BASE_URL = 'https://inventory-backend-hm7r.onrender.com/api/v1';
-const MAX_RETRIES = 8; // more retries to handle backend wake-up
-const INITIAL_RETRY_DELAY = 2000; // 2 seconds
-const MAX_TOTAL_WAIT_TIME = 60 * 60 * 1000; // 1 hour
+// Use the correct backend URL from env
+const BACKEND_BASE_URL = process.env.BACKEND_TESTING_API_BASE_URL || 'https://kayron-backend-testing.onrender.com/api/v1';
+const MAX_RETRIES = 8;
+const INITIAL_RETRY_DELAY = 2000;
+const MAX_TOTAL_WAIT_TIME = 60 * 60 * 1000;
 
 interface Context {
     params: Promise<{ path: string[] }>;
@@ -25,7 +26,6 @@ async function fetchWithRetry(
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
-            // Check total elapsed time
             const elapsed = Date.now() - startTime;
             if (elapsed > MAX_TOTAL_WAIT_TIME) {
                 throw new Error(`Request timeout: Backend took too long (>1 hour)`);
@@ -75,6 +75,8 @@ async function handleRequest(request: NextRequest, context: Context) {
         const requestedPath = path.join('/');
         const fullBackendUrl = `${BACKEND_BASE_URL}/${requestedPath}${request.nextUrl.search}`;
 
+        console.log(`🔗 Proxying ${request.method} ${requestedPath} to ${fullBackendUrl}`);
+
         // Clean headers
         const headers = new Headers(request.headers);
         headers.set('Authorization', `Bearer ${token}`);
@@ -84,7 +86,7 @@ async function handleRequest(request: NextRequest, context: Context) {
 
         // Optional GET-after-POST delay
         if (request.method === 'GET' && request.headers.get('x-retry-after-post') === 'true') {
-            await sleep(1000); // wait 1s before first GET attempt
+            await sleep(1000);
         }
 
         // Body for write requests

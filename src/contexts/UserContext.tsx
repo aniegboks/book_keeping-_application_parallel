@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { fetchUserPrivilegesForRoles, hasPrivilege, canPerformAction, UserPrivileges } from "@/lib//auth/privilages";
+import { fetchUserPrivilegesForRoles, hasPrivilege, canPerformAction, UserPrivileges, isSuperAdminByEmail } from "@/lib/auth/privilages";
 
 interface User {
   id: string;
@@ -34,6 +34,7 @@ interface UserContextType {
   refreshUser: () => Promise<void>;
   hasPrivilege: (privilege: string, module?: string) => boolean;
   canPerformAction: (module: string, action: 'create' | 'read' | 'update' | 'delete' | 'get') => boolean;
+  isSuperAdmin: boolean;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -43,6 +44,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [menus, setMenus] = useState<Menu[]>([]);
   const [privileges, setPrivileges] = useState<UserPrivileges>({});
   const [loading, setLoading] = useState(true);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const router = useRouter();
 
   // Map Supabase roles to backend role codes
@@ -53,25 +55,43 @@ export function UserProvider({ children }: { children: ReactNode }) {
       'editor': 'ADMIN',
       'teacher': 'CLASS_TEACHER',
       'user': 'STUDENTS',
+      'store-keeper': 'STORE_KEEPER',
+      'storekeeper': 'STORE_KEEPER',
+      'store_keeper': 'STORE_KEEPER',
     };
     
-    return roleMap[role.toLowerCase()] || role.toUpperCase();
+    const mapped = roleMap[role.toLowerCase()] || role.toUpperCase();
+    console.log(`🔄 Role mapping: "${role}" → "${mapped}"`);
+    return mapped;
   };
 
   const fetchMenus = useCallback(async (roles: string[]) => {
     try {
       const backendRoles = roles.map(mapRoleToBackendCode);
-      console.log('🔄 Mapped roles:', { original: roles, backend: backendRoles });
+      console.log('📋 Fetching menus for roles:', { 
+        original: roles, 
+        backend: backendRoles 
+      });
 
       const menusPromises = backendRoles.map(async (roleCode: string) => {
         try {
-          const res = await fetch(`/api/proxy/role_menus/role/${roleCode}`);
+          const url = `/api/proxy/role_menus/role/${roleCode}`;
+          console.log(`📡 Fetching menus from: ${url}`);
+          
+          const res = await fetch(url);
+          
+          console.log(`📡 Response for ${roleCode}:`, {
+            status: res.status,
+            ok: res.ok
+          });
           
           if (res.ok) {
             const data: RoleMenuResponse[] = await res.json();
+            console.log(`✅ Menus received for ${roleCode}:`, data);
             return data.map((item) => item.menu);
           }
-          console.warn(`⚠️ No menus found for role: ${roleCode}`);
+          
+          console.warn(`⚠️ No menus found for role: ${roleCode} (Status: ${res.status})`);
           return [];
         } catch (error) {
           console.error(`❌ Failed to fetch menus for role ${roleCode}:`, error);
@@ -80,7 +100,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
       });
 
       const menusArrays = await Promise.all(menusPromises);
+      console.log('📋 All menus arrays:', menusArrays);
+      
       const allMenus = menusArrays.flat();
+      console.log('📋 Flattened menus:', allMenus);
 
       const uniqueMenus = Array.from(
         new Map(allMenus.map((menu) => [menu.id, menu])).values()
@@ -90,21 +113,33 @@ export function UserProvider({ children }: { children: ReactNode }) {
         a.caption.localeCompare(b.caption)
       );
 
-      console.log(`✅ Loaded ${uniqueMenus.length} unique menus for roles:`, backendRoles);
+      console.log(`✅ Final unique menus (${uniqueMenus.length}):`, uniqueMenus);
       setMenus(uniqueMenus);
     } catch (error) {
-      console.error("Failed to fetch menus:", error);
+      console.error("❌ Failed to fetch menus:", error);
       setMenus([]);
     }
   }, []);
 
-  // ✅ NEW: Fetch user privileges
-  const fetchPrivileges = useCallback(async (roles: string[]) => {
+  // Fetch user privileges with email-based super admin check
+  const fetchPrivileges = useCallback(async (roles: string[], email: string) => {
     try {
-      const backendRoles = roles.map(mapRoleToBackendCode);
-      console.log('🔄 Fetching privileges for roles:', backendRoles);
+      // Check if user is super admin by email FIRST
+      const isSuperAdminEmail = isSuperAdminByEmail(email);
+      setIsSuperAdmin(isSuperAdminEmail);
 
-      const userPrivileges = await fetchUserPrivilegesForRoles(backendRoles);
+      if (isSuperAdminEmail) {
+        console.log(`🔑 Super admin email detected: ${email} - granting full access`);
+        setPrivileges({
+          "*": [{ description: "ALL_PRIVILEGES", status: "active" }]
+        });
+        return;
+      }
+
+      const backendRoles = roles.map(mapRoleToBackendCode);
+      console.log('🔐 Fetching privileges for roles:', backendRoles);
+
+      const userPrivileges = await fetchUserPrivilegesForRoles(backendRoles, email);
       
       const privilegeCount = Object.values(userPrivileges).reduce(
         (sum, privs) => sum + privs.length, 
@@ -112,41 +147,66 @@ export function UserProvider({ children }: { children: ReactNode }) {
       );
       
       console.log(`✅ Loaded ${privilegeCount} privileges across ${Object.keys(userPrivileges).length} modules`);
+      console.log('🔐 Privileges detail:', userPrivileges);
       setPrivileges(userPrivileges);
     } catch (error) {
-      console.error("Failed to fetch privileges:", error);
+      console.error("❌ Failed to fetch privileges:", error);
       setPrivileges({});
     }
   }, []);
 
   const fetchUser = useCallback(async () => {
     try {
+      console.log('👤 Fetching user data...');
       const res = await fetch("/api/proxy/auth/test");
       
       if (res.ok) {
         const data = await res.json();
+        console.log('👤 User data received:', data.user);
         setUser(data.user);
         
-        if (data.user?.roles && data.user.roles.length > 0) {
-          // Fetch both menus and privileges
+        if (data.user?.email) {
+          // Check super admin FIRST before any privilege fetching
+          const isSuperAdminEmail = isSuperAdminByEmail(data.user.email);
+          console.log(`🔐 Super admin check for ${data.user.email}:`, isSuperAdminEmail);
+          
+          if (isSuperAdminEmail) {
+            console.log('🔑 SUPER ADMIN DETECTED - Granting full access');
+            setIsSuperAdmin(true);
+            setPrivileges({
+              "*": [{ description: "ALL_PRIVILEGES", status: "active" }]
+            });
+            setMenus([]); // Super admin gets all menus by default
+            return; // Skip role-based privilege fetching
+          }
+        }
+        
+        if (data.user?.roles && data.user.roles.length > 0 && data.user?.email) {
+          console.log('📋 User roles:', data.user.roles);
+          // Fetch both menus and privileges (passing email for super admin check)
           await Promise.all([
             fetchMenus(data.user.roles),
-            fetchPrivileges(data.user.roles)
+            fetchPrivileges(data.user.roles, data.user.email)
           ]);
         } else {
+          console.warn('⚠️ No roles found for user');
           setMenus([]);
           setPrivileges({});
+          setIsSuperAdmin(false);
         }
       } else {
+        console.error('❌ Auth test failed:', res.status);
         setUser(null);
         setMenus([]);
         setPrivileges({});
+        setIsSuperAdmin(false);
       }
     } catch (error) {
-      console.error("Failed to fetch user:", error);
+      console.error("❌ Failed to fetch user:", error);
       setUser(null);
       setMenus([]);
       setPrivileges({});
+      setIsSuperAdmin(false);
     } finally {
       setLoading(false);
     }
@@ -158,6 +218,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setMenus([]);
       setPrivileges({});
+      setIsSuperAdmin(false);
       toast.success("Logged out successfully");
       router.push("/login");
     } catch (error) {
@@ -166,7 +227,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ✅ Helper functions for privilege checking
+  // Helper functions for privilege checking
   const checkPrivilege = useCallback((privilege: string, module?: string) => {
     return hasPrivilege(privileges, privilege, module);
   }, [privileges]);
@@ -179,6 +240,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
+  // Debug effect to log menu changes
+  useEffect(() => {
+    console.log('📋 MENUS UPDATED:', {
+      count: menus.length,
+      menus: menus.map(m => ({ caption: m.caption, route: m.route }))
+    });
+  }, [menus]);
+
   return (
     <UserContext.Provider value={{ 
       user, 
@@ -188,7 +257,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       logout, 
       refreshUser: fetchUser,
       hasPrivilege: checkPrivilege,
-      canPerformAction: checkAction
+      canPerformAction: checkAction,
+      isSuperAdmin
     }}>
       {children}
     </UserContext.Provider>

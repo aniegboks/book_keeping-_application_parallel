@@ -6,12 +6,25 @@ import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import { useUser } from "@/contexts/UserContext";
-import { AcademicSession, CreateAcademicSessionData } from "@/lib/types/academic_session";
+import { academicSessionsApi, AcademicSession, CreateAcademicSessionData } from "@/lib/academic_session";
 import SessionsTable from "@/components/academic_session_ui/sessions_table";
 import SessionModal from "@/components/academic_session_ui/session_modal";
 import Loader from "@/components/ui/loading_spinner";
 import Container from "@/components/ui/container";
 import { Download } from "lucide-react";
+
+// Enhanced error message extractor
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  
+  if (typeof error === 'string') {
+    return error;
+  }
+  
+  return "An unexpected error occurred. Please try again.";
+}
 
 export default function AcademicSessionsManagement() {
   const { canPerformAction } = useUser();
@@ -35,40 +48,15 @@ export default function AcademicSessionsManagement() {
   const fetchSessions = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/academic_session");
-      
-      if (!res.ok) {
-        // Enhanced error handling with status codes
-        let errorMessage = "Unable to load academic sessions. ";
-        
-        if (res.status === 404) {
-          errorMessage += "The sessions endpoint was not found.";
-        } else if (res.status === 500) {
-          errorMessage += "A server error occurred. Please try again later.";
-        } else if (res.status === 403) {
-          errorMessage += "You don't have permission to view sessions.";
-        } else if (res.status === 401) {
-          errorMessage += "Please log in to continue.";
-        } else {
-          errorMessage += "Please check your connection and try again.";
-        }
-        
-        throw new Error(errorMessage);
-      }
-      
-      const data = await res.json();
+      const data = await academicSessionsApi.getAll();
       setSessions(data);
-    } catch (error) {
-      // Distinguish between network errors and API errors
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        toast.error("Network error: Unable to connect to the server. Please check your internet connection.", {
-          duration: 5000,
-        });
-      } else if (error instanceof Error) {
-        toast.error(error.message, { duration: 5000 });
-      } else {
-        toast.error("An unexpected error occurred while loading sessions.", { duration: 5000 });
-      }
+    } catch (error: unknown) {
+      const errorMsg = getErrorMessage(error);
+      toast.error(errorMsg, {
+        duration: 5000,
+        position: 'top-right',
+      });
+      console.error('Failed to fetch academic sessions:', error);
     } finally {
       setLoading(false);
     }
@@ -78,14 +66,7 @@ export default function AcademicSessionsManagement() {
     fetchSessions();
   }, []);
 
-  const openCreateModal = () => {
-    if (!canCreate) {
-      toast.error("Access denied: You don't have permission to create academic sessions. Please contact your administrator.", {
-        duration: 4000,
-      });
-      return;
-    }
-    setEditingSession(null);
+  const resetForm = () => {
     setFormData({
       session: "",
       name: "",
@@ -93,12 +74,23 @@ export default function AcademicSessionsManagement() {
       end_date: "",
       status: "active",
     });
+  };
+
+  const openCreateModal = () => {
+    if (!canCreate) {
+      toast.error("You don't have permission to create academic sessions", {
+        duration: 4000,
+      });
+      return;
+    }
+    setEditingSession(null);
+    resetForm();
     setShowModal(true);
   };
 
   const openEditModal = (session: AcademicSession) => {
     if (!canUpdate) {
-      toast.error("Access denied: You don't have permission to update academic sessions. Please contact your administrator.", {
+      toast.error("You don't have permission to update academic sessions", {
         duration: 4000,
       });
       return;
@@ -117,28 +109,45 @@ export default function AcademicSessionsManagement() {
   const downloadSpreadsheet = () => {
     try {
       if (sessions.length === 0) {
-        toast.error("No data to export: There are no academic sessions available to download.", {
+        toast.error("No academic sessions available to export", {
           duration: 3000,
         });
         return;
       }
 
-      // Convert sessions array to worksheet
-      const worksheet = XLSX.utils.json_to_sheet(sessions);
+      const worksheet = XLSX.utils.json_to_sheet(
+        sessions.map((s) => ({
+          ID: s.id,
+          Session: s.session,
+          Name: s.name,
+          "Start Date": s.start_date,
+          "End Date": s.end_date,
+          Status: s.status,
+          "Created At": new Date(s.created_at).toLocaleString(),
+        }))
+      );
+      
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Academic Sessions");
 
-      // Write workbook and save as file
-      const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
-      saveAs(blob, `academic_sessions_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const excelBuffer = XLSX.write(workbook, {
+        bookType: "xlsx",
+        type: "array",
+      });
       
-      toast.success(`Successfully exported ${sessions.length} session(s) to Excel.`, {
+      const blob = new Blob([excelBuffer], { 
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+      });
+      
+      const fileName = `academic_sessions_${new Date().toISOString().split('T')[0]}.xlsx`;
+      saveAs(blob, fileName);
+      
+      toast.success(`Successfully exported ${sessions.length} session(s) to Excel!`, {
         duration: 3000,
       });
     } catch (error) {
       console.error("Export error:", error);
-      toast.error("Export failed: Unable to generate Excel file. Your browser may not support file downloads.", {
+      toast.error("Failed to export sessions. Please try again.", {
         duration: 4000,
       });
     }
@@ -163,17 +172,18 @@ export default function AcademicSessionsManagement() {
           canDelete={canDelete}
         />
 
-        <Container>
-          <div className="flex items-center justify-start mt-4">
-            <button
-              onClick={downloadSpreadsheet}
-              className="bg-[#3D4C63] text-white flex items-center gap-2 hover:bg-[#495C79] transition-colors px-4 py-2 rounded-sm text-sm"
-            >
-              <Download className="w-5 h-5" />
-              <span>Export</span>
-            </button>
-          </div>
-        </Container>
+        <div className="flex items-center justify-start mt-4">
+          <button
+            onClick={downloadSpreadsheet}
+            disabled={sessions.length === 0}
+            className={`flex items-center gap-2 bg-[#3D4C63] text-white px-4 py-2 rounded-sm text-sm hover:opacity-90 transition ${
+              sessions.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+          >
+            <Download className="w-5 h-5" />
+            <span>Export to Excel</span>
+          </button>
+        </div>
       </Container>
 
       {showModal && (canCreate || canUpdate) && (
