@@ -55,7 +55,9 @@ export default function Controls({
           {/* Action Buttons - Only show if user has create permission */}
           {canCreate && (
             <div className="flex gap-2">
-              <button
+              {/**
+               * 
+               *     <button
                 onClick={onAdd}
                 className="flex items-center gap-2 px-4 py-2 bg-[#3D4C63] text-white rounded-sm hover:bg-[#495C79] text-sm transition-colors whitespace-nowrap"
               >
@@ -71,6 +73,7 @@ export default function Controls({
                   Bulk Add
                 </button>
               )}
+               */}
             </div>
           )}
         </div>
