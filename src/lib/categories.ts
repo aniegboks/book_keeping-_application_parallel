@@ -1,39 +1,41 @@
-import { NextRequest } from "next/server";
-import { Category } from "./types/categories"; // Ensure this path is correct
+// lib/categories.ts
 
-// ------------------------------
-// Custom Error Class
-// ------------------------------
-
-export class CategoriesApiError extends Error {
-  status: number;
-  originalError?: unknown;
-  
-  constructor(message: string, status: number, originalError?: unknown) {
-    super(message);
-    this.status = status;
-    this.originalError = originalError;
-    this.name = 'CategoriesApiError';
-  }
+export interface Category {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
 }
 
-// ------------------------------
-// Error Response Interface
-// ------------------------------
+export interface CreateCategoryData {
+  name: string;
+}
 
+const BASE_URL = "/api/proxy/categories";
+
+// Define error response structure
 interface ApiErrorResponse {
-  error?: string;
   message?: string;
+  error?: string;
   details?: unknown;
 }
 
-// ------------------------------
-// Parse API Error Helper
-// ------------------------------
+// Enhanced error class with user-friendly messages
+class CategoryApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode?: number,
+    public originalError?: unknown
+  ) {
+    super(message);
+    this.name = 'CategoryApiError';
+  }
+}
 
-function parseApiError(error: Error | CategoriesApiError | { message?: string }, statusCode?: number): string {
+// Parse API error responses and return user-friendly messages
+function parseApiError(error: Error | CategoryApiError | { message?: string }, statusCode?: number): string {
   // Network errors
-  if (!navigator.onLine) {
+  if (typeof window !== 'undefined' && !navigator.onLine) {
     return "No internet connection. Please check your network and try again.";
   }
 
@@ -84,8 +86,7 @@ function parseApiError(error: Error | CategoriesApiError | { message?: string },
   if (error.message && 
       !error.message.includes('Internal') && 
       !error.message.includes('Server Error') &&
-      !error.message.includes('Failed to fetch') &&
-      !error.message.startsWith('HTTP')) {
+      !error.message.includes('Failed to fetch')) {
     return error.message;
   }
 
@@ -93,277 +94,189 @@ function parseApiError(error: Error | CategoriesApiError | { message?: string },
   return "Something went wrong. Please try again or contact support if the issue persists.";
 }
 
-// ------------------------------
-// Validate Category Data
-// ------------------------------
+// Validate category data before sending
+function validateCategoryData(data: CreateCategoryData | Partial<CreateCategoryData>): void {
+  if ('name' in data) {
+    const name = data.name?.trim();
+    
+    if (!name) {
+      throw new CategoryApiError("Category name is required and cannot be empty.", 400);
+    }
+    
+    if (name.length < 2) {
+      throw new CategoryApiError("Category name must be at least 2 characters long.", 400);
+    }
+    
+    if (name.length > 100) {
+      throw new CategoryApiError("Category name cannot exceed 100 characters.", 400);
+    }
 
-function validateCategoryData(name: string): void {
-  const trimmedName = name?.trim();
-  
-  if (!trimmedName) {
-    throw new CategoriesApiError("Category name is required and cannot be empty.", 400);
-  }
-  
-  if (trimmedName.length < 2) {
-    throw new CategoriesApiError("Category name must be at least 2 characters long.", 400);
-  }
-  
-  if (trimmedName.length > 100) {
-    throw new CategoriesApiError("Category name cannot exceed 100 characters.", 400);
-  }
-
-  // Check for invalid characters
-  const invalidChars = /[<>]/;
-  if (invalidChars.test(trimmedName)) {
-    throw new CategoriesApiError("Category name contains invalid characters.", 400);
+    // Check for invalid characters
+    const invalidChars = /[<>]/;
+    if (invalidChars.test(name)) {
+      throw new CategoryApiError("Category name contains invalid characters.", 400);
+    }
   }
 }
 
-// ------------------------------
-// Proxy Base URL
-// ------------------------------
-
-const getProxyBaseUrl = () => {
-  if (typeof window === 'undefined') {
-    return process.env.NEXT_PUBLIC_SITE_URL 
-      ? `${process.env.NEXT_PUBLIC_SITE_URL}/api/proxy`
-      : 'http://localhost:3000/api/proxy';
-  }
-  return '/api/proxy';
-};
-
-const PROXY_BASE_URL = getProxyBaseUrl();
-console.log("🔧 PROXY_BASE_URL initialized:", PROXY_BASE_URL);
-
-// ------------------------------
-// Token and Response Helpers
-// ------------------------------
-
-export const getTokenFromRequest = (req: NextRequest): string => {
-  const token = req.cookies.get("token")?.value;
-  if (!token) throw new CategoriesApiError("Unauthorized", 401);
-  return token;
-};
-
-export const successResponse = <T>(data: T, status = 200): Response => {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-};
-
-export const errorResponse = (message: string, status = 500): Response => {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-};
-
-// ------------------------------
-// Core API Request Function (via Proxy)
-// ------------------------------
-
-export const categoriesApiRequest = async <T>(
-  endpoint: string,
-  {
-    method = "GET",
-    body,
-  }: { method?: string; body?: string } = {}
-): Promise<T> => {
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-  const fullUrl = `${PROXY_BASE_URL}/${cleanEndpoint}`;
-
-  console.log("🌐 categoriesApiRequest:", { method, fullUrl });
-
+// --- Universal fetch proxy helper with enhanced error handling ---
+async function fetchProxy(url: string, options: RequestInit = {}) {
   try {
-    const res = await fetch(fullUrl, {
-      method,
+    const response = await fetch(url, {
+      ...options,
       headers: {
         "Content-Type": "application/json",
+        ...(options.headers || {}),
       },
-      body,
-      credentials: "include",
-      cache: "no-store",
     });
 
-    console.log("📊 Response status:", res.status);
-
-    // Read response text once
-    const responseText = await res.text();
-
-    if (!res.ok) {
+    if (!response.ok) {
       let errorData: ApiErrorResponse | null = null;
+      let errorMessage = '';
 
-      // Attempt JSON parsing, ignore parse errors
       try {
-        if (responseText) {
-          errorData = JSON.parse(responseText) as ApiErrorResponse;
-        }
+        errorData = await response.json() as ApiErrorResponse;
+        errorMessage = errorData?.message || errorData?.error || '';
       } catch {
-        // ignore JSON parse errors
+        // If parsing fails, use status text
+        errorMessage = response.statusText;
       }
 
-      // Handle auth issues - redirect to login
-      if (res.status === 401) {
+      // Handle auth issues
+      if (response.status === 401) {
         if (typeof window !== 'undefined') {
           window.location.href = "/login";
         }
+        throw new CategoryApiError(
+          "Your session has expired. Redirecting to login...",
+          401,
+          errorData
+        );
       }
 
-      // Extract error message
-      const errorMessage = errorData?.error || 
-                          errorData?.message || 
-                          responseText.slice(0, 100);
-
-      // Create user-friendly error message
+      // Create detailed error with user-friendly message
       const userFriendlyMessage = parseApiError(
-        { message: errorMessage },
-        res.status
+        { message: errorMessage }, 
+        response.status
       );
 
-      throw new CategoriesApiError(
+      throw new CategoryApiError(
         userFriendlyMessage,
-        res.status,
+        response.status,
         errorData
       );
     }
 
-    // Handle empty response (204 or empty text)
-    if (res.status === 204 || responseText.length === 0) {
-      return {} as T;
-    }
+    // Handle no content
+    if (response.status === 204) return null;
 
-    // Parse JSON response
-    try {
-      return JSON.parse(responseText) as T;
-    } catch {
-      throw new CategoriesApiError(
-        "Server returned invalid data format. Please try again.",
-        500
-      );
-    }
+    return response.json();
   } catch (err) {
     console.error("Categories API Fetch failed:", {
-      url: fullUrl,
-      method,
+      url,
+      method: options.method || 'GET',
       error: err,
       timestamp: new Date().toISOString()
     });
 
-    // Re-throw CategoriesApiError as-is
-    if (err instanceof CategoriesApiError) {
+    // Re-throw CategoryApiError as-is
+    if (err instanceof CategoryApiError) {
       throw err;
     }
 
     // Wrap other errors with user-friendly message
     const error = err as Error;
-    throw new CategoriesApiError(
+    throw new CategoryApiError(
       parseApiError(error, undefined),
-      500,
+      undefined,
       err
     );
   }
-};
-
-// ------------------------------
-// Exported API Call Functions
-// ------------------------------
-
-export async function getAll(): Promise<Category[]> {
-  try {
-    return await categoriesApiRequest<Category[]>("/categories", {
-      method: "GET",
-    });
-  } catch (error) {
-    throw error; // Error already has user-friendly message
-  }
 }
 
-export async function getAllWithToken(): Promise<Category[]> {
-  try {
-    return await categoriesApiRequest<Category[]>("/categories");
-  } catch (error) {
-    throw error;
-  }
-}
-
-export async function getById(id: string): Promise<Category> {
-  try {
-    if (!id || !id.trim()) {
-      throw new CategoriesApiError("Category ID is required.", 400);
-    }
-
-    return await categoriesApiRequest<Category>(`/categories/${id}`);
-  } catch (error) {
-    throw error;
-  }
-}
-
-export async function create(data: Partial<Category>): Promise<Category> {
-  try {
-    // Validate category name
-    if (data.name) {
-      validateCategoryData(data.name);
-    } else {
-      throw new CategoriesApiError("Category name is required.", 400);
-    }
-
-    return await categoriesApiRequest<Category>("/categories", {
-      method: "POST",
-      body: JSON.stringify({ name: data.name.trim() }),
-    });
-  } catch (error) {
-    throw error;
-  }
-}
-
-export async function update(id: string, data: Partial<Category>): Promise<Category> {
-  try {
-    if (!id || !id.trim()) {
-      throw new CategoriesApiError("Category ID is required for updates.", 400);
-    }
-
-    // Validate category name if provided
-    if (data.name) {
-      validateCategoryData(data.name);
-    }
-
-    return await categoriesApiRequest<Category>(`/categories/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(data.name ? { name: data.name.trim() } : data),
-    });
-  } catch (error) {
-    throw error;
-  }
-}
-
-export async function remove(id: string): Promise<void> {
-  try {
-    if (!id || !id.trim()) {
-      throw new CategoriesApiError("Category ID is required for deletion.", 400);
-    }
-
-    return await categoriesApiRequest<void>(`/categories/${id}`, {
-      method: "DELETE",
-    });
-  } catch (error) {
-    throw error;
-  }
-}
-
-// ------------------------------
-// API Utility Object
-// ------------------------------
-
+// --- CRUD methods ---
 export const categoriesApi = {
-  getTokenFromRequest,
-  successResponse,
-  errorResponse,
-  request: categoriesApiRequest,
-  getAll,
-  getAllWithToken,
-  getById,
-  create,
-  update,
-  delete: remove,
-};
+  /**
+   * Get all categories
+   */
+  async getAll(): Promise<Category[]> {
+    try {
+      return await fetchProxy(BASE_URL);
+    } catch (error) {
+      throw error; // Error already has user-friendly message
+    }
+  },
+
+  /**
+   * Get category by ID
+   */
+  async getById(id: string): Promise<Category> {
+    try {
+      if (!id || !id.trim()) {
+        throw new CategoryApiError("Category ID is required.", 400);
+      }
+
+      const url = `${BASE_URL}/${id}`;
+      return await fetchProxy(url);
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Create new category
+   */
+  async create(data: CreateCategoryData): Promise<Category> {
+    try {
+      // Validate data before sending
+      validateCategoryData(data);
+
+      return await fetchProxy(BASE_URL, {
+        method: "POST",
+        body: JSON.stringify({ name: data.name.trim() }),
+      });
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Update category
+   */
+  async update(id: string, data: Partial<CreateCategoryData>): Promise<Category> {
+    try {
+      if (!id || !id.trim()) {
+        throw new CategoryApiError("Category ID is required for updates.", 400);
+      }
+
+      // Validate data before sending
+      if (data.name !== undefined) {
+        validateCategoryData(data as CreateCategoryData);
+      }
+
+      const url = `${BASE_URL}/${id}`;
+      return await fetchProxy(url, {
+        method: "PUT",
+        body: JSON.stringify(data.name ? { name: data.name.trim() } : data),
+      });
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Delete category
+   */
+  async delete(id: string): Promise<void> {
+    try {
+      if (!id || !id.trim()) {
+        throw new CategoryApiError("Category ID is required for deletion.", 400);
+      }
+
+      const url = `${BASE_URL}/${id}`;
+      await fetchProxy(url, { method: "DELETE" });
+    } catch (error) {
+      throw error;
+    }
+  },
+} as const;

@@ -9,7 +9,7 @@ import CategoriesGrid from "@/components/categories_ui/categories_grid";
 import CategoriesTable from "@/components/categories_ui/categories_table";
 import CategoryModal from "@/components/categories_ui/categories_modal";
 import DeleteCategoriesModal from "@/components/categories_ui/delete_categories_modal";
-import { fetchCategories, createCategory, updateCategory, deleteCategory } from "@/lib/types/categories";
+import { categoriesApi } from "@/lib/categories"; // ✅ Only import from the new file
 import Container from "@/components/ui/container";
 import LoadingSpinner from "@/components/ui/loading_spinner";
 import { Download } from "lucide-react";
@@ -77,7 +77,7 @@ export default function CategoriesManagement() {
     }
 
     try {
-      await deleteCategory(deleteTarget.id);
+      await categoriesApi.delete(deleteTarget.id); // ✅ Use new API
       setCategories(categories.filter((c) => c.id !== deleteTarget.id));
       toast.success(`Category "${deleteTarget.name}" deleted successfully!`, {
         duration: 3000,
@@ -104,7 +104,7 @@ export default function CategoriesManagement() {
   const loadCategories = async () => {
     try {
       setLoading(true);
-      const data = await fetchCategories();
+      const data = await categoriesApi.getAll(); // ✅ Use new API
       setCategories(data);
     } catch (error: unknown) {
       const errorMsg = getErrorMessage(error);
@@ -158,7 +158,7 @@ export default function CategoriesManagement() {
 
     try {
       setIsSubmitting(true);
-      const newCategory = await createCategory(trimmedName);
+      const newCategory = await categoriesApi.create({ name: trimmedName }); // ✅ Use new API
       setCategories([...categories, newCategory]);
       setShowModal(false);
       resetForm();
@@ -218,9 +218,9 @@ export default function CategoriesManagement() {
 
     try {
       setIsSubmitting(true);
-      const updatedCategory = await updateCategory(
+      const updatedCategory = await categoriesApi.update(
         editingCategory.id,
-        trimmedName
+        { name: trimmedName } // ✅ Use new API
       );
       setCategories(
         categories.map((c) =>

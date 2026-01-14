@@ -11,6 +11,7 @@ import SubCategoryModal from "@/components/sub_categories_ui/sub_categories_moda
 import Container from "@/components/ui/container";
 import Loader from "@/components/ui/loading_spinner";
 import Trends from "@/components/sub_categories_ui/trends";
+import { subCategoryApi } from "@/lib/sub_categories"; // Import the API helper
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import toast from "react-hot-toast";
@@ -37,7 +38,7 @@ export default function SubCategoriesPage() {
 
   const loadCategories = async () => {
     try {
-      const res = await fetch("/api/categories");
+      const res = await fetch("/api/proxy/categories");
       if (!res.ok) {
         const errorData = await res.json().catch(() => null);
         throw new Error(errorData?.message || errorData?.error || "Failed to load categories");
@@ -53,12 +54,7 @@ export default function SubCategoriesPage() {
 
   const loadSubCategories = async () => {
     try {
-      const res = await fetch("/api/sub_categories");
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => null);
-        throw new Error(errorData?.message || errorData?.error || "Failed to load sub-categories");
-      }
-      const data = await res.json();
+      const data = await subCategoryApi.getAll();
       setSubCategories(data);
       return data;
     } catch (err) {
@@ -118,26 +114,8 @@ export default function SubCategoriesPage() {
 
     try {
       if (editingItem) {
-        const res = await fetch(`/api/sub_categories/${editingItem.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData),
-        });
+        const updatedItem = await subCategoryApi.update(editingItem.id, formData);
         
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => null);
-          
-          if (res.status === 409) {
-            throw new Error(`A sub-category named '${formData.name}' already exists in this category`);
-          }
-          if (res.status === 404) {
-            throw new Error("Sub-category not found. It may have been deleted");
-          }
-          
-          throw new Error(errorData?.message || errorData?.error || "Failed to update sub-category");
-        }
-
-        const updatedItem: SubCategory = await res.json();
         setSubCategories(prev =>
           prev.map(item => item.id === updatedItem.id ? updatedItem : item)
         );
@@ -147,31 +125,8 @@ export default function SubCategoriesPage() {
           duration: 4000,
         });
       } else {
-        const res = await fetch("/api/sub_categories", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData),
-        });
+        const newItem = await subCategoryApi.create(formData);
         
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => null);
-          
-          if (res.status === 409) {
-            throw new Error(`A sub-category named '${formData.name}' already exists in this category`);
-          }
-          if (res.status === 422) {
-            const validationMessage = errorData?.errors
-              ? Object.entries(errorData.errors)
-                  .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(", ")}`)
-                  .join("; ")
-              : "Invalid data provided";
-            throw new Error(`Validation failed: ${validationMessage}`);
-          }
-          
-          throw new Error(errorData?.message || errorData?.error || "Failed to create sub-category");
-        }
-
-        const newItem: SubCategory = await res.json();
         setSubCategories(prev => [...prev, newItem]);
 
         toast.dismiss(loadingToast);
@@ -227,22 +182,7 @@ export default function SubCategoriesPage() {
     const loadingToast = toast.loading(`Deleting '${itemName}'...`);
 
     try {
-      const res = await fetch(`/api/sub_categories/${id}`, {
-        method: "DELETE"
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => null);
-        
-        if (res.status === 404) {
-          throw new Error("Sub-category not found. It may have already been deleted");
-        }
-        if (res.status === 409) {
-          throw new Error("This sub-category has associated items. Please remove those items first");
-        }
-        
-        throw new Error(errorData?.error || errorData?.message || "Failed to delete sub-category");
-      }
+      await subCategoryApi.delete(id);
 
       // Remove from state immediately
       setSubCategories(prev => prev.filter(item => item.id !== id));

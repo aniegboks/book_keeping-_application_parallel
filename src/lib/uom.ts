@@ -1,6 +1,19 @@
 // src/lib/uom.ts
 
-const BASE_URL = "/api/uoms";
+const BASE_URL = "/api/proxy/uoms"; // Changed from "/api/uoms"
+
+// Helper to get the full URL (handles both client and server)
+function getFullUrl(path: string): string {
+  // Check if we're on the server
+  if (typeof window === 'undefined') {
+    // Server-side: construct absolute URL
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const host = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'localhost:3000';
+    return `${protocol}://${host}${path}`;
+  }
+  // Client-side: use relative URL
+  return path;
+}
 
 // Error details type for better type safety
 interface ErrorDetails {
@@ -31,7 +44,8 @@ async function fetchWithErrorHandling(
   options: RequestInit = {}
 ): Promise<Response> {
   try {
-    const response = await fetch(url, {
+    const fullUrl = getFullUrl(url); // Convert to absolute URL if on server
+    const response = await fetch(fullUrl, {
       ...options,
       credentials: "include",
       headers: {

@@ -196,7 +196,7 @@ const VerticalNav = () => {
             </div>
           </div>
         ) : (
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col gap-1"> 
             {authorizedMenus.map((menu) => {
               const isActive = pathname === menu.route;
               return (

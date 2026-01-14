@@ -8,7 +8,20 @@ export interface SubCategory {
   updated_at: string;
 }
 
-const BASE_URL = "https://inventory-backend-hm7r.onrender.com/api/v1/sub_categories";
+const BASE_URL = "/api/proxy/sub_categories";
+
+// Helper to get the full URL (handles both client and server)
+function getFullUrl(path: string): string {
+  // Check if we're on the server
+  if (typeof window === 'undefined') {
+    // Server-side: construct absolute URL
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const host = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'localhost:3000';
+    return `${protocol}://${host}${path}`;
+  }
+  // Client-side: use relative URL
+  return path;
+}
 
 // Error details type for better type safety
 interface ErrorDetails {
@@ -30,11 +43,9 @@ class SubCategoryApiError extends Error {
   }
 }
 
-// Helper to attach token to headers
-function getAuthHeaders(token?: string) {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return headers;
+// Helper to attach headers (NO TOKEN - proxy handles it via cookies)
+function getHeaders() {
+  return { "Content-Type": "application/json" };
 }
 
 // Enhanced fetch wrapper with detailed error handling
@@ -44,7 +55,8 @@ async function fetchWithErrorHandling(
   operationContext: string
 ): Promise<Response> {
   try {
-    const response = await fetch(url, options);
+    const fullUrl = getFullUrl(url);
+    const response = await fetch(fullUrl, options);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
@@ -168,14 +180,15 @@ async function fetchWithErrorHandling(
   }
 }
 
-// Fetch all sub-categories
-export async function fetchAllSubCategories(token?: string): Promise<SubCategory[]> {
+// Fetch all sub-categories (NO TOKEN PARAM - proxy handles auth)
+export async function fetchAllSubCategories(): Promise<SubCategory[]> {
   try {
     const response = await fetchWithErrorHandling(
       BASE_URL,
       {
         method: "GET",
-        headers: getAuthHeaders(token),
+        headers: getHeaders(),
+        credentials: 'include', // Important: include cookies
       },
       "Loading sub-categories"
     );
@@ -194,13 +207,14 @@ export async function fetchAllSubCategories(token?: string): Promise<SubCategory
 }
 
 // Fetch a single sub-category by ID
-export async function fetchSubCategoryById(token: string, id: string): Promise<SubCategory> {
+export async function fetchSubCategoryById(id: string): Promise<SubCategory> {
   try {
     const response = await fetchWithErrorHandling(
       `${BASE_URL}/${id}`,
       {
         method: "GET",
-        headers: getAuthHeaders(token),
+        headers: getHeaders(),
+        credentials: 'include',
       },
       "Loading sub-category"
     );
@@ -219,13 +233,14 @@ export async function fetchSubCategoryById(token: string, id: string): Promise<S
 }
 
 // Create a sub-category
-export async function createSubCategory(token: string, data: Partial<SubCategory>): Promise<SubCategory> {
+export async function createSubCategory(data: Partial<SubCategory>): Promise<SubCategory> {
   try {
     const response = await fetchWithErrorHandling(
       BASE_URL,
       {
         method: "POST",
-        headers: getAuthHeaders(token),
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify(data),
       },
       "Creating sub-category"
@@ -257,13 +272,14 @@ export async function createSubCategory(token: string, data: Partial<SubCategory
 }
 
 // Update sub-category
-export async function updateSubCategory(token: string, id: string, data: Partial<SubCategory>): Promise<SubCategory> {
+export async function updateSubCategory(id: string, data: Partial<SubCategory>): Promise<SubCategory> {
   try {
     const response = await fetchWithErrorHandling(
       `${BASE_URL}/${id}`,
       {
         method: "PUT",
-        headers: getAuthHeaders(token),
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify(data),
       },
       "Updating sub-category"
@@ -297,13 +313,14 @@ export async function updateSubCategory(token: string, id: string, data: Partial
 }
 
 // Delete sub-category
-export async function deleteSubCategory(token: string, id: string): Promise<boolean> {
+export async function deleteSubCategory(id: string): Promise<boolean> {
   try {
     await fetchWithErrorHandling(
       `${BASE_URL}/${id}`,
       {
         method: "DELETE",
-        headers: getAuthHeaders(token),
+        headers: getHeaders(),
+        credentials: 'include',
       },
       "Deleting sub-category"
     );
