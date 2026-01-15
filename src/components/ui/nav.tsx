@@ -39,6 +39,32 @@ const MENU_PRIVILEGES: Record<string, { module: string; action: 'read' | 'create
   '/settings': { module: 'Settings', action: 'read' },
 };
 
+// Default developer menu items
+const DEVELOPER_MENUS = [
+  { id: 'dev-1', caption: 'Academic Session', route: '/dashboard', order: 1 },
+  { id: 'dev-2', caption: 'Brands', route: '/brands', order: 2 },
+  { id: 'dev-3', caption: 'Categories', route: '/categories', order: 3 },
+  { id: 'dev-4', caption: 'Sub Categories', route: '/subCategories', order: 4 },
+  { id: 'dev-5', caption: 'Units of Measure', route: '/uom', order: 5 },
+  { id: 'dev-6', caption: 'Inventory Items', route: '/inventoryItem', order: 6 },
+  { id: 'dev-7', caption: 'Inventory Entitlement', route: '/classInventoryEntitlment', order: 7 },
+  { id: 'dev-8', caption: 'Suppliers', route: '/suppliers', order: 8 },
+  { id: 'dev-9', caption: 'Users', route: '/user', order: 9 },
+  { id: 'dev-10', caption: 'Classes', route: '/classes', order: 10 },
+  { id: 'dev-11', caption: 'Class Teachers', route: '/classTeachers', order: 11 },
+  { id: 'dev-12', caption: 'Purchase', route: '/transactionItem', order: 12 },
+  { id: 'dev-13', caption: 'Students', route: '/students', order: 13 },
+  { id: 'dev-14', caption: 'Student Collection', route: '/studentInventoryEntitlement', order: 14 },
+  { id: 'dev-15', caption: 'Inventory Distributions', route: '/inventoryDistrbution', order: 15 },
+  { id: 'dev-16', caption: 'Inventory Summary', route: '/inventorySummary', order: 16 },
+  { id: 'dev-17', caption: 'Students Report', route: '/studentsReport', order: 17 },
+  { id: 'dev-18', caption: 'Supplier Transaction', route: '/supplierTransaction', order: 18 },
+  { id: 'dev-19', caption: 'Roles', route: '/roles', order: 19 },
+  { id: 'dev-20', caption: 'Role Privileges', route: '/rolesPrivilage', order: 20 },
+  { id: 'dev-21', caption: 'Menus', route: '/menu', order: 21 },
+  { id: 'dev-22', caption: 'Role Menus', route: '/rolesMenu', order: 22 },
+];
+
 // Smart icon mapping based on menu caption
 const getIconForMenu = (caption: string): React.ReactNode => {
   const lower = caption.toLowerCase();
@@ -75,6 +101,12 @@ const VerticalNav = () => {
 
   // Filter menus based on privileges
   const authorizedMenus = React.useMemo(() => {
+    // DEVELOPER MODE: If no menus from server, use default developer menus
+    if (menus.length === 0) {
+      console.log('🛠️ DEVELOPER MODE: No menus from server, showing all routes');
+      return DEVELOPER_MENUS;
+    }
+
     console.log('🔍 Filtering menus:', {
       totalMenus: menus.length,
       isSuperAdmin,
@@ -196,29 +228,37 @@ const VerticalNav = () => {
             </div>
           </div>
         ) : (
-          <ul className="flex flex-col gap-1"> 
-            {authorizedMenus.map((menu) => {
-              const isActive = pathname === menu.route;
-              return (
-                <li key={menu.id}>
-                  <Link
-                    href={menu.route}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
-                      isActive
-                        ? "bg-[#3D4C63] text-white shadow-sm"
-                        : "hover:bg-[#F3F4F7] text-gray-700"
-                    }`}
-                    title={menu.caption}
-                  >
-                    {getIconForMenu(menu.caption)}
-                    <span className="text-sm font-medium truncate">
-                      {menu.caption}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            {menus.length === 0 && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-xs text-yellow-800 font-semibold mb-1">🛠️ Developer Mode</p>
+                <p className="text-xs text-yellow-700">Showing all routes (no server menus)</p>
+              </div>
+            )}
+            <ul className="flex flex-col gap-1"> 
+              {authorizedMenus.map((menu) => {
+                const isActive = pathname === menu.route;
+                return (
+                  <li key={menu.id}>
+                    <Link
+                      href={menu.route}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
+                        isActive
+                          ? "bg-[#3D4C63] text-white shadow-sm"
+                          : "hover:bg-[#F3F4F7] text-gray-700"
+                      }`}
+                      title={menu.caption}
+                    >
+                      {getIconForMenu(menu.caption)}
+                      <span className="text-sm font-medium truncate">
+                        {menu.caption}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </nav>
 
